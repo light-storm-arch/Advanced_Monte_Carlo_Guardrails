@@ -10,6 +10,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.5.0/Recharts.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     body{margin:0;padding:0}
@@ -44,6 +45,13 @@
   <div id="root"></div>
   <script type="text/babel">
 const { useState, useCallback, useEffect } = React;
+
+// =============================================================================
+// SUPABASE CLIENT INITIALIZATION
+// =============================================================================
+const SUPABASE_URL = 'https://oubzkgwgdpzenylmrvtp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_fUEFEFvP776MHAStHHrATA_4UxM5uIs';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // =============================================================================
 // CONSTANTS: Tax Tables
@@ -1574,9 +1582,531 @@ const generatePDF = (inputs, results) => {
 };
 
 // =============================================================================
+// AUTH COMPONENTS: Login, Team Setup, Team Management
+// =============================================================================
+
+function LoginPage({ onLogin }) {
+  const [mode, setMode] = useState('login'); // 'login' or 'signup'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setError(error.message);
+    setLoading(false);
+  };
+
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { display_name: displayName } }
+    });
+    if (error) {
+      setError(error.message);
+    } else {
+      setMessage('Check your email for a confirmation link, then log in.');
+      setMode('login');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-6">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <h1 className="font-display text-4xl font-semibold mb-2 bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-200 bg-clip-text text-transparent">Financial Planning Calculator</h1>
+          <p className="text-slate-400">Team Portal</p>
+        </div>
+        <div className="card p-8">
+          <h2 className="font-display text-2xl font-semibold text-amber-200 mb-6 text-center">
+            {mode === 'login' ? 'Sign In' : 'Create Account'}
+          </h2>
+          {error && <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-4 text-sm text-red-300">{error}</div>}
+          {message && <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-3 mb-4 text-sm text-green-300">{message}</div>}
+          <form onSubmit={mode === 'login' ? handleLogin : handleSignup} className="space-y-4">
+            {mode === 'signup' && (
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Display Name</label>
+                <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Your name" required />
+              </div>
+            )}
+            <div>
+              <label className="block text-sm text-slate-400 mb-2">Email</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required style={{background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:'8px',padding:'10px 14px',color:'white',width:'100%'}} />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-2">Password</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} style={{background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:'8px',padding:'10px 14px',color:'white',width:'100%'}} />
+            </div>
+            <button type="submit" className="btn-primary w-full text-center" disabled={loading}>
+              {loading ? 'Please wait...' : (mode === 'login' ? 'Sign In' : 'Create Account')}
+            </button>
+          </form>
+          <div className="mt-6 text-center">
+            {mode === 'login' ? (
+              <p className="text-sm text-slate-400">
+                Don't have an account?{' '}
+                <button onClick={() => { setMode('signup'); setError(''); }} className="text-amber-400 hover:text-amber-300 underline">Sign up</button>
+              </p>
+            ) : (
+              <p className="text-sm text-slate-400">
+                Already have an account?{' '}
+                <button onClick={() => { setMode('login'); setError(''); }} className="text-amber-400 hover:text-amber-300 underline">Sign in</button>
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamSetup({ session, onTeamReady }) {
+  const [mode, setMode] = useState('choose'); // 'choose', 'create', 'waiting'
+  const [teamName, setTeamName] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [invitation, setInvitation] = useState(null);
+  const [checking, setChecking] = useState(true);
+
+  // Check for pending invitation on mount
+  useEffect(() => {
+    const checkInvitation = async () => {
+      const { data, error } = await supabase
+        .from('invitations')
+        .select('*, teams(name)')
+        .eq('email', session.user.email)
+        .eq('status', 'pending')
+        .limit(1)
+        .maybeSingle();
+      if (data) setInvitation(data);
+      setChecking(false);
+    };
+    checkInvitation();
+  }, [session.user.email]);
+
+  const handleCreateTeam = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    // Create team
+    const { data: team, error: teamErr } = await supabase
+      .from('teams')
+      .insert({ name: teamName, created_by: session.user.id })
+      .select()
+      .single();
+    if (teamErr) { setError(teamErr.message); setLoading(false); return; }
+    // Add self as admin
+    const { error: memberErr } = await supabase
+      .from('team_members')
+      .insert({
+        team_id: team.id,
+        user_id: session.user.id,
+        role: 'admin',
+        email: session.user.email,
+        display_name: session.user.user_metadata?.display_name || session.user.email
+      });
+    if (memberErr) { setError(memberErr.message); setLoading(false); return; }
+    onTeamReady(team.id, team.name, 'admin');
+  };
+
+  const handleAcceptInvitation = async () => {
+    setError('');
+    setLoading(true);
+    // Add self as team member
+    const { error: memberErr } = await supabase
+      .from('team_members')
+      .insert({
+        team_id: invitation.team_id,
+        user_id: session.user.id,
+        role: 'member',
+        email: session.user.email,
+        display_name: session.user.user_metadata?.display_name || session.user.email
+      });
+    if (memberErr) { setError(memberErr.message); setLoading(false); return; }
+    // Mark invitation as accepted
+    await supabase
+      .from('invitations')
+      .update({ status: 'accepted' })
+      .eq('id', invitation.id);
+    onTeamReady(invitation.team_id, invitation.teams?.name || 'Team', 'member');
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="loading-spinner"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-6">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <h1 className="font-display text-3xl font-semibold mb-2 bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-200 bg-clip-text text-transparent">Team Setup</h1>
+          <p className="text-slate-400 text-sm">Signed in as {session.user.email}</p>
+        </div>
+
+        {error && <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-4 text-sm text-red-300">{error}</div>}
+
+        {invitation ? (
+          <div className="card p-8 text-center">
+            <h3 className="font-display text-xl text-amber-200 mb-4">You've Been Invited!</h3>
+            <p className="text-slate-300 mb-2">You have a pending invitation to join:</p>
+            <p className="text-2xl font-semibold text-white mb-6">{invitation.teams?.name || 'a team'}</p>
+            <button onClick={handleAcceptInvitation} className="btn-primary w-full mb-3" disabled={loading}>
+              {loading ? 'Joining...' : 'Accept & Join Team'}
+            </button>
+            <button onClick={() => setInvitation(null)} className="btn-secondary w-full text-sm">
+              Decline & Create My Own Team
+            </button>
+          </div>
+        ) : mode === 'choose' ? (
+          <div className="card p-8">
+            <h3 className="font-display text-xl text-amber-200 mb-6 text-center">Get Started</h3>
+            <button onClick={() => setMode('create')} className="btn-primary w-full mb-4">
+              Create a New Team
+            </button>
+            <div className="text-center">
+              <p className="text-sm text-slate-400 mb-4">If your admin has invited you, the invitation will appear here automatically once sent.</p>
+              <button onClick={() => { setChecking(true); setTimeout(async () => {
+                const { data } = await supabase
+                  .from('invitations')
+                  .select('*, teams(name)')
+                  .eq('email', session.user.email)
+                  .eq('status', 'pending')
+                  .limit(1)
+                  .maybeSingle();
+                if (data) setInvitation(data);
+                setChecking(false);
+              }, 500); }} className="btn-secondary text-sm">
+                Check for Invitations
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="card p-8">
+            <h3 className="font-display text-xl text-amber-200 mb-6 text-center">Create Your Team</h3>
+            <form onSubmit={handleCreateTeam} className="space-y-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Team Name</label>
+                <input type="text" value={teamName} onChange={e => setTeamName(e.target.value)} placeholder="e.g., Smith Financial Advisors" required />
+              </div>
+              <button type="submit" className="btn-primary w-full" disabled={loading}>
+                {loading ? 'Creating...' : 'Create Team'}
+              </button>
+              <button type="button" onClick={() => setMode('choose')} className="btn-secondary w-full text-sm">Back</button>
+            </form>
+          </div>
+        )}
+
+        <div className="text-center mt-6">
+          <button onClick={handleLogout} className="text-sm text-slate-500 hover:text-slate-300">Sign Out</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamManagement({ session, teamId, teamName, onClose }) {
+  const [members, setMembers] = useState([]);
+  const [invitations, setInvitations] = useState([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadMembers();
+    loadInvitations();
+  }, [teamId]);
+
+  const loadMembers = async () => {
+    const { data } = await supabase
+      .from('team_members')
+      .select('*')
+      .eq('team_id', teamId)
+      .order('created_at');
+    if (data) setMembers(data);
+  };
+
+  const loadInvitations = async () => {
+    const { data } = await supabase
+      .from('invitations')
+      .select('*')
+      .eq('team_id', teamId)
+      .eq('status', 'pending')
+      .order('created_at');
+    if (data) setInvitations(data);
+  };
+
+  const handleInvite = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    const { error: invErr } = await supabase
+      .from('invitations')
+      .insert({
+        team_id: teamId,
+        email: inviteEmail.toLowerCase().trim(),
+        invited_by: session.user.id
+      });
+    if (invErr) {
+      if (invErr.message.includes('duplicate')) {
+        setError('This email has already been invited.');
+      } else {
+        setError(invErr.message);
+      }
+    } else {
+      setSuccess(`Invitation sent to ${inviteEmail}. They will see it when they sign up and log in.`);
+      setInviteEmail('');
+      loadInvitations();
+    }
+    setLoading(false);
+  };
+
+  const handleRemoveMember = async (memberId, memberEmail) => {
+    if (memberEmail === session.user.email) return;
+    if (!confirm(`Remove ${memberEmail} from the team?`)) return;
+    await supabase.from('team_members').delete().eq('id', memberId);
+    loadMembers();
+  };
+
+  const handleCancelInvitation = async (invId) => {
+    await supabase.from('invitations').delete().eq('id', invId);
+    loadInvitations();
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6">
+      <div className="max-w-2xl mx-auto">
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="font-display text-3xl font-semibold text-amber-200">Manage Team</h1>
+          <button onClick={onClose} className="btn-secondary text-sm">Back to Dashboard</button>
+        </div>
+
+        <div className="card p-6 mb-6">
+          <h2 className="font-display text-lg text-amber-200 mb-1">Team Name</h2>
+          <p className="text-xl text-white">{teamName}</p>
+        </div>
+
+        {error && <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-4 text-sm text-red-300">{error}</div>}
+        {success && <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-3 mb-4 text-sm text-green-300">{success}</div>}
+
+        {/* Invite member */}
+        <div className="card p-6 mb-6">
+          <h2 className="font-display text-lg text-amber-200 mb-4">Invite a Team Member</h2>
+          <form onSubmit={handleInvite} className="flex gap-3">
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={e => setInviteEmail(e.target.value)}
+              placeholder="colleague@example.com"
+              required
+              className="flex-1"
+            />
+            <button type="submit" className="btn-primary whitespace-nowrap" disabled={loading}>
+              {loading ? 'Sending...' : 'Send Invite'}
+            </button>
+          </form>
+          <p className="text-xs text-slate-500 mt-2">The invited person will need to create an account with this email address, then they'll see the invitation when they log in.</p>
+        </div>
+
+        {/* Pending invitations */}
+        {invitations.length > 0 && (
+          <div className="card p-6 mb-6">
+            <h2 className="font-display text-lg text-amber-200 mb-4">Pending Invitations</h2>
+            <div className="space-y-2">
+              {invitations.map(inv => (
+                <div key={inv.id} className="flex items-center justify-between bg-slate-800/50 rounded-lg p-3">
+                  <div>
+                    <span className="text-white">{inv.email}</span>
+                    <span className="text-xs text-yellow-400 ml-2">Pending</span>
+                  </div>
+                  <button onClick={() => handleCancelInvitation(inv.id)} className="text-xs text-red-400 hover:text-red-300">Cancel</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Current members */}
+        <div className="card p-6">
+          <h2 className="font-display text-lg text-amber-200 mb-4">Team Members</h2>
+          <div className="space-y-2">
+            {members.map(m => (
+              <div key={m.id} className="flex items-center justify-between bg-slate-800/50 rounded-lg p-3">
+                <div>
+                  <span className="text-white">{m.display_name || m.email}</span>
+                  <span className="text-xs text-slate-400 ml-2">{m.email}</span>
+                  {m.role === 'admin' && <span className="text-xs text-amber-400 ml-2 bg-amber-400/20 rounded px-2 py-0.5">Admin</span>}
+                  {m.user_id === session.user.id && <span className="text-xs text-slate-500 ml-2">(you)</span>}
+                </div>
+                {m.user_id !== session.user.id && (
+                  <button onClick={() => handleRemoveMember(m.id, m.email)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// CLIENT DASHBOARD: List, Load, Delete clients
+// =============================================================================
+
+function ClientDashboard({ session, teamId, teamName, userRole, onOpenClient, onNewClient, onManageTeam, onLogout }) {
+  const [clients, setClients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  useEffect(() => {
+    loadClients();
+  }, [teamId]);
+
+  const loadClients = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('clients')
+      .select('id, client_name, created_by, updated_by, created_at, updated_at')
+      .eq('team_id', teamId)
+      .order('updated_at', { ascending: false });
+    if (data) setClients(data);
+    setLoading(false);
+  };
+
+  const handleDelete = async (clientId) => {
+    await supabase.from('clients').delete().eq('id', clientId);
+    setDeleteConfirm(null);
+    loadClients();
+  };
+
+  const filtered = clients.filter(c =>
+    c.client_name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const formatDate = (d) => {
+    if (!d) return '';
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6">
+      <div className="max-w-5xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="font-display text-4xl font-semibold bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-200 bg-clip-text text-transparent">
+              {teamName}
+            </h1>
+            <p className="text-slate-400 text-sm mt-1">Signed in as {session.user.user_metadata?.display_name || session.user.email}</p>
+          </div>
+          <div className="flex gap-3">
+            {userRole === 'admin' && (
+              <button onClick={onManageTeam} className="btn-secondary text-sm">Manage Team</button>
+            )}
+            <button onClick={onLogout} className="text-sm text-slate-400 hover:text-slate-200 px-3 py-2">Sign Out</button>
+          </div>
+        </div>
+
+        {/* Actions bar */}
+        <div className="flex items-center justify-between mb-6 gap-4">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="Search clients..."
+            className="flex-1 max-w-sm"
+          />
+          <button onClick={onNewClient} className="btn-primary whitespace-nowrap">
+            + New Client
+          </button>
+        </div>
+
+        {/* Client list */}
+        {loading ? (
+          <div className="text-center py-20"><div className="loading-spinner"></div></div>
+        ) : filtered.length === 0 ? (
+          <div className="card p-12 text-center">
+            <p className="text-slate-400 text-lg mb-4">
+              {clients.length === 0 ? 'No clients yet. Create your first client plan!' : 'No clients match your search.'}
+            </p>
+            {clients.length === 0 && (
+              <button onClick={onNewClient} className="btn-primary">Create First Client</button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filtered.map(client => (
+              <div key={client.id} className="card p-5 flex items-center justify-between hover:border-amber-500/30 transition-colors cursor-pointer group"
+                   onClick={() => onOpenClient(client.id)}>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-white group-hover:text-amber-200 transition-colors">
+                    {client.client_name}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Last updated: {formatDate(client.updated_at)}
+                  </p>
+                </div>
+                <div className="flex gap-2 ml-4" onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={() => onOpenClient(client.id)}
+                    className="text-sm text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-lg bg-amber-400/10 hover:bg-amber-400/20 transition-colors"
+                  >
+                    Open
+                  </button>
+                  {deleteConfirm === client.id ? (
+                    <div className="flex gap-1">
+                      <button onClick={() => handleDelete(client.id)} className="text-sm text-red-400 bg-red-400/20 px-3 py-1.5 rounded-lg">
+                        Confirm
+                      </button>
+                      <button onClick={() => setDeleteConfirm(null)} className="text-sm text-slate-400 bg-slate-600/30 px-3 py-1.5 rounded-lg">
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirm(client.id)}
+                      className="text-sm text-red-400 hover:text-red-300 px-3 py-1.5 rounded-lg bg-red-400/10 hover:bg-red-400/20 transition-colors"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
 // REACT COMPONENTS: Main Application
 // =============================================================================
-function App() {
+function App({ session, teamId, currentClientId: propClientId, initialPlanData, onBack, onSaveComplete }) {
   const [currentYear, setCurrentYear] = useState(2026);
   
   // Client information
@@ -1709,6 +2239,120 @@ function App() {
   const [accountBalancesPercentile, setAccountBalancesPercentile] = useState('p50');
   const [returnDistributionOpen, setReturnDistributionOpen] = useState(false);
   const [returnDistributionPercentile, setReturnDistributionPercentile] = useState('p50');
+
+  // Save/Load state
+  const [savedClientId, setSavedClientId] = useState(propClientId || null);
+  const [savedClientName, setSavedClientName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [showSaveAsDialog, setShowSaveAsDialog] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+
+  // Collect all plan state into a single object for persistence
+  const collectPlanData = () => ({
+    client1Name, client1Age, client1PlanLength, client1RmdAge,
+    client2Name, client2Age, client2PlanLength, client2RmdAge,
+    filingStatus, accounts, stateTaxRate, assetAllocations,
+    baseInflation, baseSpending, survivorSpending,
+    targetSuccessRate, upperGuardrail, lowerGuardrail,
+    numSimulations, goals, incomeSources,
+    spendingMode, phase2Year, phase2Reduction, phase3Year, phase3Reduction,
+    currentYear
+  });
+
+  // Restore all plan state from a loaded object
+  const restorePlanData = (d) => {
+    if (!d) return;
+    if (d.client1Name !== undefined) setClient1Name(d.client1Name);
+    if (d.client1Age !== undefined) setClient1Age(d.client1Age);
+    if (d.client1PlanLength !== undefined) setClient1PlanLength(d.client1PlanLength);
+    if (d.client1RmdAge !== undefined) setClient1RmdAge(d.client1RmdAge);
+    if (d.client2Name !== undefined) setClient2Name(d.client2Name);
+    if (d.client2Age !== undefined) setClient2Age(d.client2Age);
+    if (d.client2PlanLength !== undefined) setClient2PlanLength(d.client2PlanLength);
+    if (d.client2RmdAge !== undefined) setClient2RmdAge(d.client2RmdAge);
+    if (d.filingStatus !== undefined) setFilingStatus(d.filingStatus);
+    if (d.accounts !== undefined) setAccounts(d.accounts);
+    if (d.stateTaxRate !== undefined) setStateTaxRate(d.stateTaxRate);
+    if (d.assetAllocations !== undefined) setAssetAllocations(d.assetAllocations);
+    if (d.baseInflation !== undefined) setBaseInflation(d.baseInflation);
+    if (d.baseSpending !== undefined) setBaseSpending(d.baseSpending);
+    if (d.survivorSpending !== undefined) setSurvivorSpending(d.survivorSpending);
+    if (d.targetSuccessRate !== undefined) setTargetSuccessRate(d.targetSuccessRate);
+    if (d.upperGuardrail !== undefined) setUpperGuardrail(d.upperGuardrail);
+    if (d.lowerGuardrail !== undefined) setLowerGuardrail(d.lowerGuardrail);
+    if (d.numSimulations !== undefined) setNumSimulations(d.numSimulations);
+    if (d.goals !== undefined) setGoals(d.goals);
+    if (d.incomeSources !== undefined) setIncomeSources(d.incomeSources);
+    if (d.spendingMode !== undefined) setSpendingMode(d.spendingMode);
+    if (d.phase2Year !== undefined) setPhase2Year(d.phase2Year);
+    if (d.phase2Reduction !== undefined) setPhase2Reduction(d.phase2Reduction);
+    if (d.phase3Year !== undefined) setPhase3Year(d.phase3Year);
+    if (d.phase3Reduction !== undefined) setPhase3Reduction(d.phase3Reduction);
+    if (d.currentYear !== undefined) setCurrentYear(d.currentYear);
+  };
+
+  // Restore initial plan data on mount (when loading existing client)
+  useEffect(() => {
+    if (initialPlanData) {
+      restorePlanData(initialPlanData.plan_data);
+      setSavedClientName(initialPlanData.client_name || '');
+      setSavedClientId(initialPlanData.id || propClientId);
+    }
+  }, []);
+
+  // Save existing client (update)
+  const saveClient = async () => {
+    if (!savedClientId) { setShowSaveAsDialog(true); return; }
+    setIsSaving(true);
+    setSaveMessage('');
+    const clientName = savedClientName || client1Name || 'Unnamed Client';
+    const { error } = await supabase
+      .from('clients')
+      .update({
+        client_name: clientName,
+        plan_data: collectPlanData(),
+        updated_by: session.user.id
+      })
+      .eq('id', savedClientId);
+    if (error) {
+      setSaveMessage('Error saving: ' + error.message);
+    } else {
+      setSaveMessage('Saved!');
+      if (onSaveComplete) onSaveComplete();
+      setTimeout(() => setSaveMessage(''), 3000);
+    }
+    setIsSaving(false);
+  };
+
+  // Save as new client (insert)
+  const saveAsNewClient = async (name) => {
+    setIsSaving(true);
+    setSaveMessage('');
+    const clientName = name || client1Name || 'Unnamed Client';
+    const { data, error } = await supabase
+      .from('clients')
+      .insert({
+        team_id: teamId,
+        created_by: session.user.id,
+        updated_by: session.user.id,
+        client_name: clientName,
+        plan_data: collectPlanData()
+      })
+      .select()
+      .single();
+    if (error) {
+      setSaveMessage('Error saving: ' + error.message);
+    } else {
+      setSavedClientId(data.id);
+      setSavedClientName(clientName);
+      setShowSaveAsDialog(false);
+      setSaveMessage('Saved as new client!');
+      if (onSaveComplete) onSaveComplete();
+      setTimeout(() => setSaveMessage(''), 3000);
+    }
+    setIsSaving(false);
+  };
 
   const calculate = useCallback(() => {
     setIsCalculating(true);
@@ -2155,6 +2799,46 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6">
       <div className="max-w-7xl mx-auto">
+        {/* Save As Dialog */}
+        {showSaveAsDialog && (
+          <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.7)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={() => setShowSaveAsDialog(false)}>
+            <div className="card p-8 w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <h3 className="font-display text-xl text-amber-200 mb-4">Save Client Plan</h3>
+              <div className="mb-4">
+                <label className="block text-sm text-slate-400 mb-2">Client Name</label>
+                <input type="text" value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="e.g., John & Jane Smith" />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => saveAsNewClient(newClientName)} className="btn-primary flex-1" disabled={isSaving || !newClientName.trim()}>
+                  {isSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button onClick={() => setShowSaveAsDialog(false)} className="btn-secondary">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Top action bar */}
+        {session && (
+          <div className="flex items-center justify-between mb-6 bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+            <div className="flex items-center gap-4">
+              <button onClick={onBack} className="text-sm text-slate-400 hover:text-white flex items-center gap-1">
+                ← Back to Clients
+              </button>
+              {savedClientName && <span className="text-amber-200 font-semibold">{savedClientName}</span>}
+            </div>
+            <div className="flex items-center gap-3">
+              {saveMessage && <span className="text-sm text-green-400">{saveMessage}</span>}
+              <button onClick={saveClient} className="btn-primary text-sm py-2 px-6" disabled={isSaving}>
+                {isSaving ? 'Saving...' : 'Save'}
+              </button>
+              <button onClick={() => { setNewClientName(client1Name + (client2Name ? ' & ' + client2Name : '') || ''); setShowSaveAsDialog(true); }} className="btn-secondary text-sm py-2 px-4">
+                Save As New
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="text-center mb-10">
           <h1 className="font-display text-5xl font-semibold mb-3 bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-200 bg-clip-text text-transparent">Financial Planning Calculator</h1>
           <p className="text-slate-400 text-lg">Monte Carlo simulation with dynamic guardrail analysis</p>
@@ -3303,7 +3987,144 @@ function App() {
   );
 }
 
-ReactDOM.render(<App />, document.getElementById('root'));
+// =============================================================================
+// ROOT COMPONENT: Auth flow, dashboard, and calculator orchestration
+// =============================================================================
+function Root() {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [teamId, setTeamId] = useState(null);
+  const [teamName, setTeamName] = useState('');
+  const [userRole, setUserRole] = useState('member');
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'calculator', 'teamManage'
+  const [currentClientId, setCurrentClientId] = useState(null);
+  const [initialPlanData, setInitialPlanData] = useState(null);
+
+  // Initialize auth listener
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) loadTeamInfo(session.user.id);
+      else setLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) loadTeamInfo(session.user.id);
+      else {
+        setTeamId(null);
+        setTeamName('');
+        setUserRole('member');
+        setView('dashboard');
+        setLoading(false);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const loadTeamInfo = async (userId) => {
+    const { data: membership } = await supabase
+      .from('team_members')
+      .select('team_id, role, teams(name)')
+      .eq('user_id', userId)
+      .limit(1)
+      .maybeSingle();
+    if (membership) {
+      setTeamId(membership.team_id);
+      setTeamName(membership.teams?.name || 'Team');
+      setUserRole(membership.role);
+      setView('dashboard');
+    } else {
+      setTeamId(null);
+    }
+    setLoading(false);
+  };
+
+  const handleTeamReady = (id, name, role) => {
+    setTeamId(id);
+    setTeamName(name);
+    setUserRole(role);
+    setView('dashboard');
+  };
+
+  const handleOpenClient = async (clientId) => {
+    const { data } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('id', clientId)
+      .single();
+    if (data) {
+      setCurrentClientId(clientId);
+      setInitialPlanData(data);
+      setView('calculator');
+    }
+  };
+
+  const handleNewClient = () => {
+    setCurrentClientId(null);
+    setInitialPlanData(null);
+    setView('calculator');
+  };
+
+  const handleBackToDashboard = () => {
+    setView('dashboard');
+    setCurrentClientId(null);
+    setInitialPlanData(null);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="loading-spinner" style={{width:'48px',height:'48px',borderWidth:'4px'}}></div>
+      </div>
+    );
+  }
+
+  // Not logged in
+  if (!session) return <LoginPage />;
+
+  // Logged in but no team
+  if (!teamId) return <TeamSetup session={session} onTeamReady={handleTeamReady} />;
+
+  // Team management view
+  if (view === 'teamManage') {
+    return <TeamManagement session={session} teamId={teamId} teamName={teamName} onClose={() => setView('dashboard')} />;
+  }
+
+  // Calculator view
+  if (view === 'calculator') {
+    return (
+      <App
+        key={currentClientId || 'new'}
+        session={session}
+        teamId={teamId}
+        currentClientId={currentClientId}
+        initialPlanData={initialPlanData}
+        onBack={handleBackToDashboard}
+        onSaveComplete={() => {}}
+      />
+    );
+  }
+
+  // Dashboard view (default)
+  return (
+    <ClientDashboard
+      session={session}
+      teamId={teamId}
+      teamName={teamName}
+      userRole={userRole}
+      onOpenClient={handleOpenClient}
+      onNewClient={handleNewClient}
+      onManageTeam={() => setView('teamManage')}
+      onLogout={handleLogout}
+    />
+  );
+}
+
+ReactDOM.render(<Root />, document.getElementById('root'));
   </script>
 </body>
 </html>
