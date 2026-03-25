@@ -73,10 +73,11 @@ ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
 
 -- ---- Teams policies ----
 
--- Users can see teams they belong to
+-- Users can see teams they belong to OR created
 CREATE POLICY "Users can view their teams" ON teams
   FOR SELECT USING (
     id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+    OR created_by = auth.uid()
   );
 
 -- Any authenticated user can create a team
@@ -85,19 +86,26 @@ CREATE POLICY "Users can create teams" ON teams
 
 -- ---- Team Members policies ----
 
--- Users can see members of teams they belong to
+-- Users can see members of teams they belong to (or teams they created)
 CREATE POLICY "Users can view team members" ON team_members
   FOR SELECT USING (
     team_id IN (SELECT team_id FROM team_members AS tm WHERE tm.user_id = auth.uid())
+    OR team_id IN (SELECT id FROM teams WHERE created_by = auth.uid())
   );
 
--- Admins can add members to their team
+-- Admins can add members to their team (or team creator can add themselves as first member)
 CREATE POLICY "Admins can add team members" ON team_members
   FOR INSERT WITH CHECK (
+    -- Existing admins can add members
     team_id IN (
       SELECT team_id FROM team_members AS tm
       WHERE tm.user_id = auth.uid() AND tm.role = 'admin'
     )
+    OR
+    -- Team creator can add themselves as the first member
+    (user_id = auth.uid() AND team_id IN (
+      SELECT id FROM teams WHERE created_by = auth.uid()
+    ))
     OR
     -- Allow users to add themselves when accepting an invitation
     (user_id = auth.uid() AND team_id IN (
