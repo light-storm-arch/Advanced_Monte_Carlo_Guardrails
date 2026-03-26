@@ -1,79 +1,27 @@
 -- =============================================================================
--- Supabase Schema for Team Logins & Client Persistence
--- Run this in your Supabase SQL Editor (Dashboard > SQL Editor > New Query)
+-- FIX: RLS Infinite Recursion on team_members
+-- =============================================================================
+-- Paste this ENTIRE script into your Supabase SQL Editor and click Run.
+-- It drops the old policies and recreates them using helper functions
+-- that avoid the infinite recursion problem.
 -- =============================================================================
 
--- 1. Teams table
-CREATE TABLE teams (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  created_by UUID REFERENCES auth.users(id)
-);
+-- Step 1: Drop ALL existing policies (safe to run even if they don't exist)
+DROP POLICY IF EXISTS "Users can view their teams" ON teams;
+DROP POLICY IF EXISTS "Users can create teams" ON teams;
+DROP POLICY IF EXISTS "Users can view team members" ON team_members;
+DROP POLICY IF EXISTS "Admins can add team members" ON team_members;
+DROP POLICY IF EXISTS "Admins can remove team members" ON team_members;
+DROP POLICY IF EXISTS "Team members can view clients" ON clients;
+DROP POLICY IF EXISTS "Team members can create clients" ON clients;
+DROP POLICY IF EXISTS "Team members can update clients" ON clients;
+DROP POLICY IF EXISTS "Team members can delete clients" ON clients;
+DROP POLICY IF EXISTS "Admins can view invitations" ON invitations;
+DROP POLICY IF EXISTS "Admins can create invitations" ON invitations;
+DROP POLICY IF EXISTS "Admins can update invitations" ON invitations;
+DROP POLICY IF EXISTS "Admins can delete invitations" ON invitations;
 
--- 2. Team members table (links auth users to teams)
-CREATE TABLE team_members (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  team_id UUID REFERENCES teams(id) ON DELETE CASCADE NOT NULL,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
-  email TEXT NOT NULL,
-  display_name TEXT,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(team_id, user_id)
-);
-
--- 3. Invitations table (admin invites members by email)
-CREATE TABLE invitations (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  team_id UUID REFERENCES teams(id) ON DELETE CASCADE NOT NULL,
-  email TEXT NOT NULL,
-  invited_by UUID REFERENCES auth.users(id) NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'expired')),
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(team_id, email)
-);
-
--- 4. Clients table (financial planning clients with all plan data as JSONB)
-CREATE TABLE clients (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  team_id UUID REFERENCES teams(id) ON DELETE CASCADE NOT NULL,
-  created_by UUID REFERENCES auth.users(id) NOT NULL,
-  updated_by UUID REFERENCES auth.users(id),
-  client_name TEXT NOT NULL,
-  plan_data JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-
--- =============================================================================
--- Auto-update trigger for updated_at on clients
--- =============================================================================
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER clients_updated_at
-  BEFORE UPDATE ON clients
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
--- =============================================================================
--- Row Level Security (RLS)
--- =============================================================================
-
--- Enable RLS on all tables
-ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
-ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
-
--- =============================================================================
--- Helper functions (SECURITY DEFINER bypasses RLS to avoid infinite recursion)
--- =============================================================================
+-- Step 2: Create helper functions with SECURITY DEFINER (bypasses RLS)
 
 -- Returns all team_ids the given user belongs to
 CREATE OR REPLACE FUNCTION get_user_team_ids(uid UUID)
@@ -99,9 +47,7 @@ AS $$
   );
 $$;
 
--- =============================================================================
--- Policies
--- =============================================================================
+-- Step 3: Recreate all policies using the helper functions
 
 -- ---- Teams policies ----
 
