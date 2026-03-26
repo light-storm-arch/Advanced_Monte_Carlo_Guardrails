@@ -135,7 +135,7 @@ CREATE POLICY "Admins can add team members" ON team_members
     -- Users can add themselves when accepting an invitation
     (user_id = auth.uid() AND team_id IN (
       SELECT team_id FROM invitations
-      WHERE email = (SELECT email FROM auth.users WHERE id = auth.uid())
+      WHERE email = (auth.jwt() ->> 'email')
       AND status = 'pending'
     ))
   );
@@ -173,7 +173,7 @@ CREATE POLICY "Admins can view invitations" ON invitations
   FOR SELECT USING (
     is_team_admin(auth.uid(), team_id)
     OR
-    email = (SELECT email FROM auth.users WHERE id = auth.uid())
+    email = (auth.jwt() ->> 'email')
   );
 
 CREATE POLICY "Admins can create invitations" ON invitations
@@ -185,7 +185,7 @@ CREATE POLICY "Admins can update invitations" ON invitations
   FOR UPDATE USING (
     is_team_admin(auth.uid(), team_id)
     OR
-    (email = (SELECT email FROM auth.users WHERE id = auth.uid()) AND status = 'pending')
+    (email = (auth.jwt() ->> 'email') AND status = 'pending')
   );
 
 CREATE POLICY "Admins can delete invitations" ON invitations
